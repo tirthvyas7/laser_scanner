@@ -1,0 +1,11 @@
+pipeline:
+  columns: 16
+  threshold: 128
+  cycle_time_ns: 1000
+  mode: rng
+  csv_path: data/sample.csv
+  run_duration_ms: 5000
+
+  blocks:
+    - name: DataGeneration
+    - name: FilterThreshold

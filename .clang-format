@@ -1,0 +1,30 @@
+---
+Language:        Cpp
+BasedOnStyle:    Google
+Standard:        c++17
+
+IndentWidth:             4
+ContinuationIndentWidth: 4
+TabWidth:                4
+UseTab:                  Never
+
+ColumnLimit:     100
+
+BreakBeforeBraces:       Attach
+
+AlignConsecutiveAssignments:  true
+AlignConsecutiveDeclarations: true
+
+SortIncludes:            true
+IncludeBlocks:           Regroup
+IncludeCategories:
+  - Regex:           '^"'
+    Priority:        1
+  - Regex:           '^<'
+    Priority:        2
+
+PointerAlignment:        Right
+SpaceBeforeParens:       ControlStatements
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+ReflowComments:          false
