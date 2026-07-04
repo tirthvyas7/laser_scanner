@@ -83,9 +83,14 @@ void DataGenerationBlock::run() {
         publishMetrics(live);
     };
 
+    // Absolute (self-correcting) pacing grid: each cycle's deadline is anchored
+    // to a fixed schedule (next_deadline += T), NOT to t_start. A cycle that
+    // overshoots by e makes the next busy-wait e shorter, so the average output
+    // rate converges to exactly T instead of parking at T + busy-wait overshoot.
+    auto next_deadline = clock::now() + ns(cycle_time_ns_);
+
     while (!stop_.load(std::memory_order_acquire)) {
-        const auto t_start  = clock::now();
-        const auto deadline = t_start + ns(cycle_time_ns_);
+        const auto t_start = clock::now();
 
         auto opt = source_->getNext();
         if (!opt.has_value()) {
@@ -130,9 +135,17 @@ void DataGenerationBlock::run() {
         if ((cycles_local % kPublishEvery) == 0)
             publishNow();
 
-        // Rate-controlled: busy-wait the remainder of T. This is the slack
-        // we just freed up by deferring the divisions.
-        busyWaitUntil(deadline);
+        // Rate-controlled: busy-wait until this cycle's slot on the fixed grid,
+        // then advance the grid by exactly T (self-correcting — see above).
+        busyWaitUntil(next_deadline);
+        next_deadline += ns(cycle_time_ns_);
+
+        // Clamp: if a stall (e.g. an OS-preemption spike) pushed the grid into
+        // the past, resync to now instead of firing a catch-up burst of cycles
+        // that would overflow the downstream channel and wreck the max gap.
+        const auto now = clock::now();
+        if (next_deadline < now)
+            next_deadline = now + ns(cycle_time_ns_);
     }
 
     out_->close();
