@@ -521,6 +521,7 @@ smoothed brightness map into a binary defect mask.
 ```
 Cyn_ws/
 ├── CMakeLists.txt
+├── build.bat                        ← Windows one-command build (installs MSVC + pinned CMake, then builds)
 ├── pipeline.yaml                    ← runtime configuration
 ├── DESIGN_OVERVIEW.md               ← this document
 │
@@ -625,29 +626,37 @@ Key settings in `.clang-format`:
 | Platform | Install |
 |----------|---------|
 | Ubuntu | `sudo apt install cmake g++ git` |
-| Windows | CMake 3.16+, Visual Studio 2019+ (Desktop C++), Git |
-| macOS | `brew install cmake git` |
+| Windows | Visual Studio 2022 or VS 2022 Build Tools with the **Desktop development with C++** workload. CMake is handled for you by `build.bat` — see **Windows** below. |
 
 yaml-cpp is downloaded and built automatically at configure time — no manual install needed.
 
+> **Windows + CMake 4.x note.** yaml-cpp 0.8.0 declares `cmake_minimum_required(VERSION 3.4)`, which **CMake 4.0+ rejects** — it removed compatibility with `< 3.5` and aborts configure with a hard error. Ubuntu 22.04 ships CMake 3.22.1 (under the cutoff), so the project builds there unchanged; a Windows box with a current CMake 4.x fails at configure. `build.bat` sidesteps this by fetching the *same* CMake 3.22.1 that Ubuntu uses, so **`CMakeLists.txt` stays identical across platforms** — no edits, no `-D` flags.
+
 ### Build
 
-**Linux / macOS**
+**Linux**
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 ```
 
 **Windows**
+
+From the project root:
 ```bat
-cmake -S . -B build
-cmake --build build --config Release
+build.bat
 ```
+`build.bat` is a self-contained bootstrapper that:
+1. Locates MSVC via `vswhere`, and **if the C++ toolset is missing**, installs the VS Build Tools *Desktop development with C++* workload (one time, UAC-elevated), then imports its environment.
+2. Downloads the pinned **CMake 3.22.1** (the version in Ubuntu 22.04) into `tools\` — once, then cached.
+3. Configures and builds Release with MSVC (`cl.exe`) via the Visual Studio generator.
+
+It is **incremental**: it never deletes `build\`, so re-running it recompiles only *your* changed files — yaml-cpp and the CMake download are not rebuilt. Delete the `build\` folder yourself to force a clean rebuild.
 
 ### Run
 
 ```bash
-./build/line_scanner          # Linux / macOS
+./build/line_scanner            # Linux
 build\Release\line_scanner.exe  # Windows
 ```
 

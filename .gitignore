@@ -1,4 +1,5 @@
 /build
+/tools
 filter_output.csv
 metrics_log.csv
 metrics_report.txt
