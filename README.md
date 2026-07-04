@@ -644,7 +644,7 @@ cmake --build build -j$(nproc)
 
 From the project root:
 ```bat
-build.bat
+.\build.bat
 ```
 `build.bat` is a self-contained bootstrapper that:
 1. Locates MSVC via `vswhere`, and **if the C++ toolset is missing**, installs the VS Build Tools *Desktop development with C++* workload (one time, UAC-elevated), then imports its environment.
