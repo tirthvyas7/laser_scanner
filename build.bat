@@ -87,7 +87,12 @@ echo [build] Building Release ^(only changed files recompile^)...
 echo.
 echo [build] SUCCESS.
 echo [build]   Executable: %ROOT%build\Release\line_scanner.exe
-echo [build]   Run it:     "%ROOT%build\Release\line_scanner.exe" "%ROOT%pipeline.yaml"
+echo.
+echo [build]   Run it (cmd):
+echo             "%ROOT%build\Release\line_scanner.exe" "%ROOT%pipeline.yaml"
+echo.
+echo [build]   Run it (PowerShell -- note the leading ^&):
+echo             ^& "%ROOT%build\Release\line_scanner.exe" "%ROOT%pipeline.yaml"
 endlocal
 exit /b 0
 
