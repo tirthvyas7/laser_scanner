@@ -23,6 +23,22 @@ size_t computeChannelCapacityPairs(size_t columns) {
     return std::min(base, kMaxChannelCapacityPairs);
 }
 
+// Map a block's declared output type to a concrete RingBuffer<T>.
+std::shared_ptr<ChannelBase> makeChannel(ChannelType type, size_t cap) {
+    switch (type) {
+        case ChannelType::PixelPair:
+            return std::make_shared<RingBuffer<PixelPair>>(cap);
+        case ChannelType::LabelledElement:
+            return std::make_shared<RingBuffer<LabelledElement>>(cap);
+        case ChannelType::DefectRecord:
+            return std::make_shared<RingBuffer<DefectRecord>>(cap);
+        case ChannelType::None:
+            return nullptr;
+        default:
+            throw std::runtime_error("orchestrator: channel type not yet wired");
+    }
+}
+
 }  // namespace
 
 Orchestrator::Orchestrator(PipelineConfig cfg) : cfg_(std::move(cfg)) {}
@@ -43,6 +59,8 @@ PipelineConfig Orchestrator::loadConfigFromFile(const std::string& yaml_path) {
 
     if (pn["csv_path"])
         cfg.csv_path = pn["csv_path"].as<std::string>();
+    if (pn["output_path"])
+        cfg.output_path = pn["output_path"].as<std::string>();
     if (pn["run_duration_ms"])
         cfg.run_duration_ms = pn["run_duration_ms"].as<uint64_t>();
 
@@ -53,6 +71,8 @@ PipelineConfig Orchestrator::loadConfigFromFile(const std::string& yaml_path) {
     for (const auto& b : blocks) {
         BlockSpec spec;
         spec.name = b["name"].as<std::string>();
+        if (b["skip_logging"])
+            spec.skip_logging = b["skip_logging"].as<bool>();
         cfg.blocks.push_back(std::move(spec));
     }
     return cfg;
@@ -127,7 +147,7 @@ void Orchestrator::run() {
     // ---------------------------------------------------------------------
     const size_t cap_pairs = computeChannelCapacityPairs(cfg_.columns);
     for (size_t i = 0; i + 1 < blocks_.size(); ++i) {
-        auto ch = std::make_shared<PixelChannel>(cap_pairs);
+        auto ch = makeChannel(blocks_[i]->outputType(), cap_pairs);
         channels_.push_back(ch);
         blocks_[i]->setOutputChannel(ch);
         blocks_[i + 1]->setInputChannel(ch);
@@ -148,7 +168,9 @@ void Orchestrator::run() {
     // are intentionally NOT counted against the pipeline budget (per spec).
     std::vector<Block*> raw_blocks;
     raw_blocks.reserve(blocks_.size());
-    for (auto& b : blocks_) raw_blocks.push_back(b.get());
+    for (size_t i = 0; i < blocks_.size(); ++i)
+        if (!cfg_.blocks[i].skip_logging)  // pipeline.yaml opt-out (e.g. terminal sink)
+            raw_blocks.push_back(blocks_[i].get());
 
     MetricsLogger logger(raw_blocks, "metrics_log.csv", 50);
     logger.start();
@@ -174,6 +196,8 @@ void Orchestrator::run() {
             threads_[i].join();
     }
     for (size_t i = 0; i < blocks_.size(); ++i) {
+        if (cfg_.blocks[i].skip_logging)
+            continue;  // opted out of metrics (pipeline.yaml)
         finals.push_back({blocks_[i]->name(), blocks_[i]->publishedMetrics()});
     }
 

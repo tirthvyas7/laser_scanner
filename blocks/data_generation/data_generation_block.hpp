@@ -18,8 +18,9 @@ class DataGenerationBlock : public Block {
    public:
     DataGenerationBlock();
 
-    void setInputChannel(std::shared_ptr<PixelChannel> in) override;
-    void setOutputChannel(std::shared_ptr<PixelChannel> out) override;
+    ChannelType outputType() const override { return ChannelType::PixelPair; }
+    void        setInputChannel(std::shared_ptr<ChannelBase> in) override;
+    void        setOutputChannel(std::shared_ptr<ChannelBase> out) override;
 
     void configure(const PipelineConfig& cfg) override;
     void run() override;

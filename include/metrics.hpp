@@ -23,6 +23,8 @@ struct BlockMetrics {
     size_t total_pixels_processed = 0;
     size_t constraint_violations  = 0;
     size_t cycles_completed       = 0;
+    size_t channel_capacity       = 0;  // measured channel capacity (elements)
+    size_t channel_elem_bytes     = 0;  // real byte size of one channel element
 };
 
 struct NamedMetrics {

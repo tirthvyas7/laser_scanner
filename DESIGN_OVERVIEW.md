@@ -51,9 +51,9 @@ namespace { const bool _ls_reg_datagen = [] {
 }(); }
 ```
 
-Adding a new block (e.g., a Labelling stage) requires only:
-- Create `blocks/labelling/labelling_block.{hpp,cpp}` with `LS_REGISTER_BLOCK(...)`.
-- Add `- name: Labelling` in `pipeline.yaml` between existing entries.
+Adding a new block (e.g., a Passthrough stage) requires only:
+- Create `blocks/passthrough/passthrough_block.{hpp,cpp}` with `LS_REGISTER_BLOCK(...)`.
+- Add `- name: Passthrough` in `pipeline.yaml` between existing entries.
 - **Zero changes** to the orchestrator, other blocks, or CMakeLists beyond adding the new `.cpp`.
 
 **2. Strategy Pattern (Data Source)**
@@ -373,7 +373,9 @@ The average per-pixel processing time is **16.69 ns** — 6× below the 100 ns b
 The `max` values (e.g., 5.8 ms for a single cycle) are entirely caused by OS scheduler
 preemption events, not by code.
 
-Evidence from the violation histogram (`filter_violations.csv`):
+Evidence from the violation histogram (captured with a diagnostic build that emitted
+`filter_violations.csv`; the current build surfaces violation counts in `metrics_report.txt`
+and the 50 ms `metrics_log.csv`):
 
 | Time window | Total cycles | Violations | Violation rate | Max cycle (ns) | Notes |
 |-------------|-------------|------------|----------------|----------------|-------|
@@ -519,7 +521,7 @@ smoothed brightness map into a binary defect mask.
 ## 8. File Structure
 
 ```
-Cyn_ws/
+laser_scanner/
 ├── CMakeLists.txt
 ├── pipeline.yaml                    ← runtime configuration
 ├── DESIGN_OVERVIEW.md               ← this document
@@ -660,7 +662,6 @@ Output files:
 | `metrics_report.txt` | Final pass/fail summary |
 | `metrics_log.csv` | Per-block metrics every 50 ms |
 | `filter_output.csv` | Binary pixel results |
-| `filter_violations.csv` | Violation histogram (100 ms buckets) |
 
 ### Configuration Parameters
 

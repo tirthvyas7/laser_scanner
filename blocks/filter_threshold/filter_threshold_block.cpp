@@ -10,20 +10,18 @@ namespace line_scanner {
 
 FilterThresholdBlock::FilterThresholdBlock() : Block("FilterThreshold") {}
 
-void FilterThresholdBlock::setInputChannel(std::shared_ptr<PixelChannel> in) {
-    in_ = std::move(in);
+void FilterThresholdBlock::setInputChannel(std::shared_ptr<ChannelBase> in) {
+    in_ = std::dynamic_pointer_cast<PixelChannel>(in);
 }
 
-void FilterThresholdBlock::setOutputChannel(std::shared_ptr<PixelChannel> out) {
-    out_ = std::move(out);
+void FilterThresholdBlock::setOutputChannel(std::shared_ptr<ChannelBase> out) {
+    out_ = std::dynamic_pointer_cast<PixelChannel>(out);
 }
 
 void FilterThresholdBlock::configure(const PipelineConfig& cfg) {
     threshold_     = cfg.threshold;
     cycle_time_ns_ = cfg.cycle_time_ns;
-    output_buf_.clear();
-    output_buf_.reserve(1 << 20);  // 1 MiB initial; grows as needed
-    hist_.fill({});
+    // out_ isn't wired until after configure(); output_buf_ setup deferred to run().
 }
 
 void FilterThresholdBlock::stop() {
@@ -59,11 +57,14 @@ void FilterThresholdBlock::run() {
     if (!in_)
         throw std::runtime_error("FilterThresholdBlock: input channel not set");
 
-    // Hot-path policy mirrors DataGen: counters + max compares only.
-    // All divisions and seqlock writes happen at publish time (every
-    // kPublishEvery cycles). Per-pixel/per-pair averaging is computed once
-    // there from cycle_sum_ns / cycles_local, never on the per-cycle path.
+    // No output channel => sink (writes filter_output.csv); otherwise forward downstream.
+    const bool terminal = (out_ == nullptr);
+    if (terminal) {
+        output_buf_.clear();
+        output_buf_.reserve(1 << 20);  // 1 MiB initial; grows as needed
+    }
 
+    // Hot-path: counters + max compares only; averaging deferred to publishNow().
     BlockMetrics live{};
 
     double cycle_sum_ns     = 0.0;
@@ -76,8 +77,8 @@ void FilterThresholdBlock::run() {
     size_t fill_count = 0;
     size_t head_pos   = 0;
 
-    const auto       t_run_start           = clock::now();
-    constexpr double kViolationThresholdNs = 100.0;
+    // 9-tap warmup (8 px = 4 pairs) => output is always 2/cycle = one whole PixelPair.
+    bool downstream_stop = false;
 
     auto publishNow = [&]() {
         live.cycles_completed       = cycles_local;
@@ -89,6 +90,8 @@ void FilterThresholdBlock::run() {
         live.max_throughput_ns      = max_cycle_ns / 2.0;
         live.constraint_violations  = violations_local;
         live.peak_channel_occupancy = peak_occ_local;
+        live.channel_capacity       = in_->capacity();
+        live.channel_elem_bytes     = in_->memoryBytes() / in_->capacity();
         publishMetrics(live);
     };
 
@@ -96,6 +99,9 @@ void FilterThresholdBlock::run() {
         PixelPair pair;
         if (!readOnePair(pair))
             break;
+
+        uint8_t cyc_out[2];  // this cycle's outputs (<=2, one per pixel)
+        size_t  cyc_n = 0;
 
         const auto t_process_start = clock::now();
 
@@ -110,7 +116,9 @@ void FilterThresholdBlock::run() {
             if (fill_count == kWindow) {
                 const size_t  center = (head_pos + 4) % kWindow;
                 const uint8_t b      = convolveAndThreshold(center);
-                output_buf_.push_back(b);  // in-memory; flushed at exit
+                cyc_out[cyc_n++]     = b;      // stage for forwarding
+                if (terminal)
+                    output_buf_.push_back(b);  // sink keeps it for the file
                 ++pixels_local;
             }
         }
@@ -127,32 +135,24 @@ void FilterThresholdBlock::run() {
         if (cycle_ns > static_cast<double>(cycle_time_ns_))
             ++violations_local;
 
-        // Histogram bucket: cheap (one indexed array write + a few compares).
-        const double elapsed_ms =
-            static_cast<double>(
-                std::chrono::duration_cast<std::chrono::microseconds>(t_process_end - t_run_start)
-                    .count()) /
-            1000.0;
-        const size_t bucket_idx =
-            std::min<size_t>(kBucketCount - 1, static_cast<size_t>(elapsed_ms / kBucketWidthMs));
-        auto& b = hist_[bucket_idx];
-        b.total_cycles += 1;
-        const double per_pixel_ns = cycle_ns * 0.5;
-        if (per_pixel_ns > kViolationThresholdNs) {
-            b.violations += 1;
-            b.sum_violation_cycle_ns += cycle_ns;
-            if (cycle_ns > b.max_cycle_ns)
-                b.max_cycle_ns = cycle_ns;
+        // Forward downstream, off the timed path: back-pressure is not algorithmic time.
+        if (!terminal && cyc_n == 2) {
+            const PixelPair pp{cyc_out[0], cyc_out[1]};
+            while (!out_->write(pp)) {
+                if (stop_.load(std::memory_order_acquire)) {
+                    downstream_stop = true;
+                    break;
+                }
+                LS_PAUSE();
+            }
+            if (downstream_stop)
+                break;
         }
 
         if ((cycles_local % kPublishEvery) == 0) {
-            // Sample occupancy and the bucket's max-occupancy at publish time
-            // to avoid the per-cycle atomic load + bucket update.
-            const size_t occ = in_->occupancy();
+            const size_t occ = in_->occupancy();  // sample at publish, not per-cycle
             if (occ > peak_occ_local)
                 peak_occ_local = occ;
-            if (occ > b.max_occupancy)
-                b.max_occupancy = occ;
             publishNow();
         }
     }
@@ -161,35 +161,14 @@ void FilterThresholdBlock::run() {
         out_->close();
     publishNow();
 
-    // Flush in-memory output buffer to disk (off the hot path).
-    std::ofstream f(output_path_, std::ios::out | std::ios::trunc);
-    if (f.is_open()) {
-        f << "pixel_index,binary\n";
-        for (size_t i = 0; i < output_buf_.size(); ++i) {
-            f << i << ',' << static_cast<int>(output_buf_[i]) << '\n';
-        }
-    }
-
-    // Dump violation histogram. Sparse — skip empty buckets. Each row is one
-    // time window; columns let us spot accumulation (rate going up over
-    // time), bursts (single bucket with huge max), or channel-pressure
-    // correlation (max_occupancy at 8 = pipeline-bound).
-    std::ofstream vf(violations_path_, std::ios::out | std::ios::trunc);
-    if (vf.is_open()) {
-        vf << "bucket_start_ms,bucket_end_ms,total_cycles,violations,"
-              "violation_rate_pct,avg_violation_cycle_ns,max_cycle_ns,max_occupancy\n";
-        for (size_t i = 0; i < hist_.size(); ++i) {
-            const auto& b = hist_[i];
-            if (b.total_cycles == 0)
-                continue;
-            const double rate_pct = b.total_cycles ? (100.0 * static_cast<double>(b.violations) /
-                                                      static_cast<double>(b.total_cycles))
-                                                   : 0.0;
-            const double avg_v =
-                b.violations ? b.sum_violation_cycle_ns / static_cast<double>(b.violations) : 0.0;
-            vf << (i * kBucketWidthMs) << ',' << ((i + 1) * kBucketWidthMs) << ',' << b.total_cycles
-               << ',' << b.violations << ',' << rate_pct << ',' << avg_v << ',' << b.max_cycle_ns
-               << ',' << b.max_occupancy << '\n';
+    // Sink only: flush processed stream to disk (off hot path).
+    if (terminal) {
+        std::ofstream f(output_path_, std::ios::out | std::ios::trunc);
+        if (f.is_open()) {
+            f << "pixel_index,binary\n";
+            for (size_t i = 0; i < output_buf_.size(); ++i) {
+                f << i << ',' << static_cast<int>(output_buf_[i]) << '\n';
+            }
         }
     }
 }

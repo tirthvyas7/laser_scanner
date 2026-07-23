@@ -84,16 +84,12 @@ void MetricsLogger::writeRow(const std::string& name, const BlockMetrics& m,
 void MetricsLogger::writeFinalReport(const std::vector<NamedMetrics>& finals,
                                      const std::string& report_path, uint64_t cycle_time_budget_ns,
                                      size_t memory_budget_bytes, double throughput_budget_ns) {
-    // Each PixelPair occupies 2 bytes (two uint8_t values). Used to convert
-    // peak_channel_occupancy (pairs) into bytes for the memory budget check.
-    constexpr size_t kPairBytes = 2;
-
     std::ostringstream os;
     os << "=========================================================\n";
     os << "  Line Scanner Pipeline — Final Metrics Report\n";
     os << "=========================================================\n";
     os << "  Cycle time budget T  : " << cycle_time_budget_ns << " ns\n";
-    os << "  Memory budget m      : " << memory_budget_bytes << " bytes\n";
+    os << "  Memory budget m      : " << memory_budget_bytes << " elements in-flight (one scanline)\n";
     os << "  Throughput budget    : <" << throughput_budget_ns << " ns\n";
     os << "---------------------------------------------------------\n";
 
@@ -106,10 +102,12 @@ void MetricsLogger::writeFinalReport(const std::vector<NamedMetrics>& finals,
         // work time (a small fraction of T). We don't show it for the source.
         const bool is_source = (nm.name == "DataGeneration");
 
-        // Memory: peak buffered data on the channel feeding/leaving this
-        // block. Compared against the memory budget m (in bytes).
-        const size_t peak_bytes = m.peak_channel_occupancy * kPairBytes;
-        const bool   memory_ok  = (peak_bytes <= memory_budget_bytes);
+        // Memory: peak items buffered on the channel feeding/leaving this
+        // block. Judged in ELEMENTS vs m (a wide element can't be judged in
+        // bytes vs m); real bytes shown for information via the element size.
+        const size_t peak_elems = m.peak_channel_occupancy;
+        const size_t peak_bytes = peak_elems * m.channel_elem_bytes;    // real element size
+        const bool   memory_ok  = (peak_elems <= memory_budget_bytes);  // m = one scanline of items
 
         os << "  Block: " << nm.name;
         if (is_source)
@@ -148,9 +146,10 @@ void MetricsLogger::writeFinalReport(const std::vector<NamedMetrics>& finals,
             os << "      (max spike = OS preemption, not algorithmic; avg is the sustained rate)\n";
         }
 
-        os << "    Peak channel occupancy   : " << m.peak_channel_occupancy << " pairs ("
-           << peak_bytes << " bytes)  [" << verdictTag(memory_ok) << " vs m=" << memory_budget_bytes
-           << " bytes]\n";
+        os << "    Peak channel buffering   : " << peak_elems << " / cap " << m.channel_capacity
+           << " elements in-flight (" << peak_bytes << " B @ " << m.channel_elem_bytes
+           << " B/elem)  [" << verdictTag(memory_ok) << " <= m=" << memory_budget_bytes
+           << " elements]\n";
         os << "    Cycle violations (>T)    : " << m.constraint_violations << '\n';
         os << "---------------------------------------------------------\n";
     }

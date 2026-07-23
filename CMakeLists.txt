@@ -36,12 +36,19 @@ add_executable(line_scanner
     blocks/data_generation/rng_source.cpp
     blocks/data_generation/data_generation_block.cpp
     blocks/filter_threshold/filter_threshold_block.cpp
+    blocks/labelling/labelling_block.cpp
+    blocks/tracing_computation/tracing_block.cpp
+    blocks/output_logger/defect_logger/defect_logger.cpp
 )
 
 target_include_directories(line_scanner PRIVATE
     include
+    channels
     blocks/data_generation
     blocks/filter_threshold
+    blocks/labelling
+    blocks/tracing_computation
+    blocks/output_logger
 )
 
 target_link_libraries(line_scanner PRIVATE Threads::Threads yaml-cpp)

@@ -36,8 +36,11 @@ class Block {
    public:
     virtual ~Block() = default;
 
-    virtual void setInputChannel(std::shared_ptr<PixelChannel> in)   = 0;
-    virtual void setOutputChannel(std::shared_ptr<PixelChannel> out) = 0;
+    // Block declares its output element type; orchestrator creates the channel.
+    virtual ChannelType outputType() const = 0;
+    // Type-erased channels; each block casts to its RingBuffer<T> once at wiring.
+    virtual void setInputChannel(std::shared_ptr<ChannelBase> in)   = 0;
+    virtual void setOutputChannel(std::shared_ptr<ChannelBase> out) = 0;
 
     virtual void configure(const PipelineConfig& cfg) = 0;
     virtual void run()                                = 0;

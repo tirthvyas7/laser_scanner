@@ -4,3 +4,5 @@ filter_output.csv
 metrics_log.csv
 metrics_report.txt
 filter_violations.csv
+defects.csv
+_val_actual.csv

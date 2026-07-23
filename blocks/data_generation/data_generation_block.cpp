@@ -11,12 +11,12 @@ namespace line_scanner {
 
 DataGenerationBlock::DataGenerationBlock() : Block("DataGeneration") {}
 
-void DataGenerationBlock::setInputChannel(std::shared_ptr<PixelChannel>) {
+void DataGenerationBlock::setInputChannel(std::shared_ptr<ChannelBase>) {
     // First stage — no input channel.
 }
 
-void DataGenerationBlock::setOutputChannel(std::shared_ptr<PixelChannel> out) {
-    out_ = std::move(out);
+void DataGenerationBlock::setOutputChannel(std::shared_ptr<ChannelBase> out) {
+    out_ = std::dynamic_pointer_cast<PixelChannel>(out);  // null on type mismatch → run() throws
 }
 
 void DataGenerationBlock::configure(const PipelineConfig& cfg) {
@@ -80,6 +80,8 @@ void DataGenerationBlock::run() {
         live.avg_throughput_ns      = gap_count ? gap_sum_ns / static_cast<double>(gap_count) : 0.0;
         live.max_throughput_ns      = max_gap_ns;
         live.peak_channel_occupancy = std::max(live.peak_channel_occupancy, out_->occupancy());
+        live.channel_capacity       = out_->capacity();
+        live.channel_elem_bytes     = out_->memoryBytes() / out_->capacity();
         publishMetrics(live);
     };
 

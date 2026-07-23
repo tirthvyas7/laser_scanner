@@ -15,6 +15,11 @@ namespace line_scanner {
 // stream, applies a fixed Gaussian-like convolution kernel, and
 // thresholds the result against TV to produce a binary output.
 //
+// Output routing: if an output channel is wired (i.e. another block follows
+// in the pipeline), the binary output is forwarded downstream, packed two
+// bytes per PixelPair. If no output channel is set, this block is the sink
+// and instead writes the stream to filter_output.csv.
+//
 // Window initialization: the first 4 outputs use zero-padded history,
 // so they are emitted only after enough pixels have arrived to fill
 // the future half of the window (4 lookahead pixels).
@@ -22,8 +27,9 @@ class FilterThresholdBlock : public Block {
    public:
     FilterThresholdBlock();
 
-    void setInputChannel(std::shared_ptr<PixelChannel> in) override;
-    void setOutputChannel(std::shared_ptr<PixelChannel> out) override;
+    ChannelType outputType() const override { return ChannelType::PixelPair; }
+    void        setInputChannel(std::shared_ptr<ChannelBase> in) override;
+    void        setOutputChannel(std::shared_ptr<ChannelBase> out) override;
 
     void configure(const PipelineConfig& cfg) override;
     void run() override;
@@ -39,31 +45,14 @@ class FilterThresholdBlock : public Block {
     uint64_t                      cycle_time_ns_ = 1000;
     std::atomic<bool>             stop_{false};
 
-    // In-memory output buffer; flushed to filter_output.csv at run() exit.
-    // Keeping the per-pixel formatted ofstream OUT of the hot path was the
-    // single biggest throughput fix — std::ofstream<<int costs ~100-200ns.
+    // In-memory output buffer, used only when this block is the sink;
+    // flushed to filter_output.csv at run() exit. Keeping the per-pixel
+    // formatted ofstream OUT of the hot path was the single biggest
+    // throughput fix — std::ofstream<<int costs ~100-200ns.
     std::vector<uint8_t> output_buf_;
     std::string          output_path_ = "filter_output.csv";
 
-    // Violation histogram: bucketed by elapsed time so we get full coverage
-    // of the run, not just the first N. Each bucket aggregates total cycles
-    // and violation count + max cycle_ns + max occupancy. Dumped to
-    // filter_violations.csv at exit. Lets us see if violation RATE drifts
-    // over time (the "accumulation" hypothesis) rather than just sampling
-    // the noisy startup window.
-    struct ViolationBucket {
-        uint64_t total_cycles           = 0;
-        uint64_t violations             = 0;
-        double   max_cycle_ns           = 0.0;
-        double   sum_violation_cycle_ns = 0.0;
-        size_t   max_occupancy          = 0;
-    };
-    static constexpr size_t                   kBucketWidthMs = 100;
-    static constexpr size_t                   kBucketCount   = 600;  // 60s coverage
-    std::array<ViolationBucket, kBucketCount> hist_{};
-    std::string                               violations_path_ = "filter_violations.csv";
-
-    // 9-tap window. Indices wrap modulo 9 via window_pos_.
+    // 9-tap window. Indices wrap modulo 9 via head_pos.
     static constexpr size_t      kWindow = 9;
     std::array<uint8_t, kWindow> window_{};
 

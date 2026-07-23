@@ -1,5 +1,7 @@
 #pragma once
 
+#include "channel_base.hpp"
+
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -25,7 +27,7 @@ constexpr size_t kCacheLineSize = 64;
 #endif
 
 template <typename T>
-class RingBuffer {
+class RingBuffer : public ChannelBase {
    public:
     explicit RingBuffer(size_t requested_capacity)
         : cap_(roundUpPow2(requested_capacity == 0 ? 1 : requested_capacity)),
@@ -57,23 +59,26 @@ class RingBuffer {
         return true;
     }
 
-    void close() noexcept { closed_.store(true, std::memory_order_release); }
+    // Lifecycle/metrics — the ChannelBase virtuals (off the hot path).
+    void close() noexcept override { closed_.store(true, std::memory_order_release); }
 
-    [[nodiscard]] bool isClosed() const noexcept { return closed_.load(std::memory_order_acquire); }
+    [[nodiscard]] bool isClosed() const noexcept override {
+        return closed_.load(std::memory_order_acquire);
+    }
 
-    [[nodiscard]] bool isEmpty() const noexcept {
+    [[nodiscard]] bool isEmpty() const noexcept override {
         return r_.load(std::memory_order_acquire) == w_.load(std::memory_order_acquire);
     }
 
-    [[nodiscard]] size_t capacity() const noexcept { return cap_; }
+    [[nodiscard]] size_t capacity() const noexcept override { return cap_; }
 
-    [[nodiscard]] size_t occupancy() const noexcept {
+    [[nodiscard]] size_t occupancy() const noexcept override {
         const size_t w = w_.load(std::memory_order_acquire);
         const size_t r = r_.load(std::memory_order_acquire);
         return w - r;
     }
 
-    [[nodiscard]] size_t memoryBytes() const noexcept { return cap_ * sizeof(T); }
+    [[nodiscard]] size_t memoryBytes() const noexcept override { return cap_ * sizeof(T); }
 
    private:
     static size_t roundUpPow2(size_t v) {

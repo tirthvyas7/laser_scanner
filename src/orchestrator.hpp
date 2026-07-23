@@ -1,6 +1,8 @@
 #pragma once
 
 #include "block.hpp"
+#include "labelling_block.hpp"  // LabelledElement type for channel creation
+#include "tracing_block.hpp"    // DefectRecord type for channel creation
 #include "metrics.hpp"
 #include "pipeline_config.hpp"
 
@@ -32,10 +34,10 @@ class Orchestrator {
    private:
     void waitForTermination();
 
-    PipelineConfig                             cfg_;
-    std::vector<std::unique_ptr<Block>>        blocks_;
-    std::vector<std::thread>                   threads_;
-    std::vector<std::shared_ptr<PixelChannel>> channels_;
+    PipelineConfig                            cfg_;
+    std::vector<std::unique_ptr<Block>>       blocks_;
+    std::vector<std::thread>                  threads_;
+    std::vector<std::shared_ptr<ChannelBase>> channels_;
 
     std::atomic<bool> stop_requested_{false};
 };

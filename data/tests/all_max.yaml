@@ -2,11 +2,10 @@ pipeline:
   columns: 16
   threshold: 128
   cycle_time_ns: 1000
-  mode: rng
-  csv_path: data/sample.csv
-  output_path: defects.csv
-  run_duration_ms: 5000
-
+  mode: csv
+  csv_path: data/tests/all_max.csv
+  output_path: _val_actual.csv
+  run_duration_ms: 0
   blocks:
     - name: DataGeneration
     - name: FilterThreshold
